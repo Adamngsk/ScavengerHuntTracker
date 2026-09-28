@@ -13,6 +13,7 @@
   html,body{margin:0;height:100%;overflow:hidden;font:16px/1.4 Roboto,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--tx);background:var(--bg)}
   #map{position:fixed;inset:0}
   .leaflet-container{background:#1a1a1a;font:inherit}
+  .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.9) contrast(.9) saturate(.6)} /* dark mode for free OSM tiles */
   .leaflet-control-attribution{font-size:10px;background:rgba(18,18,18,.75)!important;color:var(--mut)}
   .leaflet-control-attribution a{color:var(--mut)}
   button{font:inherit;cursor:pointer}
@@ -72,7 +73,7 @@ if(!H.stops.length) notice('The map isn’t set up yet. Check back once the orga
 // ---------- map ----------
 const map=L.map('map',{zoomControl:false,attributionControl:false}).setView([44.9422,-93.1905],17);
 L.control.attribution({position:'bottomleft'}).addTo(map);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:20,maxNativeZoom:19,attribution:'&copy; OpenStreetMap &copy; CARTO'}).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,maxNativeZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 
 if(H.start){
   L.marker([H.start.lat,H.start.lng],{icon:L.divIcon({className:'num start',html:'START',iconSize:[46,24],iconAnchor:[23,12]})}).addTo(map).bindPopup(H.start.name||'Start');
