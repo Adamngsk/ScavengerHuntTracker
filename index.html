@@ -24,6 +24,14 @@
   #banner{background:var(--card);border-radius:12px;box-shadow:var(--sh);padding:10px 14px;font-size:14px;border-left:4px solid #fdd663;display:none}
   #bMe{position:fixed;z-index:1000;right:calc(env(safe-area-inset-right) + 12px);bottom:calc(env(safe-area-inset-bottom) + 24px);width:56px;height:56px;border-radius:50%;border:0;background:var(--card);box-shadow:var(--sh);color:var(--blue);display:flex;align-items:center;justify-content:center;padding:0}
   #bMe svg{width:24px;height:24px}
+  #alert{display:none;align-items:center;gap:10px;background:#fdd663;color:#241c00;border-radius:12px;box-shadow:var(--sh);padding:10px 8px 10px 14px;font-size:15px;font-weight:600}
+  #alert.on{display:flex}
+  #alert span{flex:1}
+  #alert .close{background:rgba(0,0,0,.12);color:#241c00;flex:none}
+  #bAlerts{position:fixed;z-index:1000;left:calc(env(safe-area-inset-left) + 12px);bottom:calc(env(safe-area-inset-bottom) + 30px);border:0;border-radius:99px;background:var(--card);box-shadow:var(--sh);color:var(--tx);padding:9px 14px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
+  #bAlerts svg{width:18px;height:18px;color:#fdd663}
+  #bAlerts:disabled{color:var(--mut);cursor:default;box-shadow:none;background:rgba(30,31,34,.8)}
+  #bAlerts:disabled svg{color:var(--mut)}
   #sheet{position:fixed;left:0;right:0;bottom:0;z-index:1100;background:var(--card);border-radius:16px 16px 0 0;box-shadow:0 -2px 12px rgba(0,0,0,.6);max-height:85vh;overflow:auto;transform:translateY(105%);transition:transform .25s ease;padding:14px calc(env(safe-area-inset-right) + 16px) calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 16px)}
   #sheet.on{transform:none}
   .shead{display:flex;align-items:center;margin-bottom:12px}
@@ -42,8 +50,10 @@
 <div id="map"></div>
 <div id="top">
   <div id="card"><h1 id="title">UST Scavenger Hunt</h1><div id="sub"></div></div>
+  <div id="alert" role="alert"><span id="alertTxt"></span><button class="close" id="alertX" aria-label="Dismiss">✕</button></div>
   <div id="banner"></div>
 </div>
+<button id="bAlerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Turn on alerts</span></button>
 <button id="bMe" aria-label="Center on me"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg></button>
 <div id="sheet"><div class="shead"><h2 id="sTitle"></h2><button class="close" aria-label="Close">✕</button></div><img class="photo" id="sPhoto" alt=""></div>
 <div id="lightbox"><img alt=""></div>
@@ -62,10 +72,17 @@ const H = Object.assign({title:'UST Scavenger Hunt',returnBy:'18:55',radius:40,s
 const $=s=>document.querySelector(s);
 const fmtHM=hm=>{const [h,m]=hm.split(':').map(Number);return `${(h%12)||12}:${String(m).padStart(2,'0')} ${h<12?'AM':'PM'}`;};
 
+const addMin=(hm,n)=>{const [h,m]=hm.split(':').map(Number),t=((h*60+m+n)%1440+1440)%1440;return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`;};
+let extend=0;                                     // minutes added by the organizer (announce.json)
+const deadline=()=>H.returnBy?fmtHM(addMin(H.returnBy,extend)):'';
+
 $('#title').textContent=H.title;
-const where=H.start&&H.start.name, when=H.returnBy&&fmtHM(H.returnBy);
-$('#sub').textContent = where||when ? 'Back'+(where?` at ${where}`:'')+(when?` by ${when}`:'') : '';
-$('#sub').hidden=!(where||when);
+function renderSub(){
+  const where=H.start&&H.start.name, when=deadline();
+  $('#sub').textContent = where||when ? 'Back'+(where?` at ${where}`:'')+(when?` by ${when}`:'') : '';
+  $('#sub').hidden=!(where||when);
+}
+renderSub();
 
 function notice(t){ const b=$('#banner'); b.style.display=t?'block':'none'; b.textContent=t||''; }
 if(!H.stops.length) notice('The map isn’t set up yet. Check back once the organizer uploads the stops.');
@@ -115,6 +132,49 @@ map.on('click',closeSheet);
 $('#sheet .close').onclick=closeSheet;
 $('#sPhoto').onclick=()=>{ $('#lightbox img').src=$('#sPhoto').src; $('#lightbox').classList.add('on'); };
 $('#lightbox').onclick=()=>$('#lightbox').classList.remove('on');
+
+// ---------- deadline extensions (announce.json) ----------
+const SEEN='ust-hunt-extend-seen', ALERTS='ust-hunt-alerts-on';
+const lsGet=k=>{try{return localStorage.getItem(k);}catch(e){return null;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
+let seen=lsGet(SEEN)===null?null:+lsGet(SEEN), ac=null;
+function audio(){ try{ ac=ac||new (window.AudioContext||window.webkitAudioContext)(); ac.onstatechange=renderAlertsBtn; }catch(e){} return ac; }
+function chime(vol){
+  const c=audio(); if(!c) return; const asked=Date.now();
+  c.resume().then(()=>{ if(Date.now()-asked>3000) return;       // don't chime late if audio was locked
+    const t=c.currentTime;
+    [880,1320].forEach((f,i)=>{ const o=c.createOscillator(), g=c.createGain(), t0=t+i*.22;
+      o.frequency.value=f; g.gain.setValueAtTime(.0001,t0); g.gain.exponentialRampToValueAtTime(vol,t0+.02); g.gain.exponentialRampToValueAtTime(.0001,t0+.5);
+      o.connect(g).connect(c.destination); o.start(t0); o.stop(t0+.55); });
+  }).catch(()=>{});
+}
+const buzz=p=>{ try{ navigator.vibrate&&navigator.vibrate(p); }catch(e){} };
+function renderAlertsBtn(){
+  const on=ac&&ac.state==='running', b=$('#bAlerts');
+  b.disabled=on; b.querySelector('span').textContent=on?'Alerts on':lsGet(ALERTS)?'Tap to re-enable alerts':'Turn on alerts';
+}
+$('#bAlerts').onclick=()=>{ audio(); chime(.08); buzz(120); lsSet(ALERTS,'1'); if(ac) ac.resume().then(renderAlertsBtn).catch(()=>{}); };
+if(lsGet(ALERTS)) audio();                         // stays "suspended" until a tap on most browsers
+renderAlertsBtn();
+
+function showAlert(n){
+  $('#alertTxt').textContent=`Time extended by ${n} min!`+(H.returnBy?` New deadline: ${deadline()}`:'');
+  $('#alert').classList.add('on');
+}
+$('#alertX').onclick=()=>$('#alert').classList.remove('on');
+async function poll(){
+  try{
+    const r=await fetch('announce.json?t='+Date.now(),{cache:'no-store'}); if(!r.ok) return;
+    const x=Math.max(0,Math.round(+(await r.json()).extend||0));
+    if(x!==extend){ extend=x; renderSub(); }
+    if(seen===null){ if(x>0) showAlert(x); }       // first visit: show quietly
+    else if(x>seen){ showAlert(x-seen); buzz([300,150,300,150,300]); chime(.35); }
+    else if(x<seen) $('#alert').classList.remove('on');   // organizer reset
+    if(x!==seen){ seen=x; lsSet(SEEN,String(x)); }
+  }catch(e){}
+}
+poll(); setInterval(poll,30000);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') poll(); });
 }
 </script>
 </body>
